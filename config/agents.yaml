@@ -1,0 +1,46 @@
+coordinator:
+  # provider: anthropic
+  # model: claude-3-5-sonnet-20241022
+  provider: openai
+  model: gpt-5.1
+  temperature: 0.3
+  max_tokens: 1500
+  timeout: 30
+
+research:
+  # provider: anthropic
+  # model: claude-3-5-sonnet-20241022
+  provider: openai
+  model: gpt-5.1
+  temperature: 0.2
+  max_tokens: 2000
+  timeout: 60
+  tavily_max_results: 5
+  tavily_min_relevance: 0.6
+
+analysis:
+  # provider: anthropic
+  # model: claude-3-5-sonnet-20241022
+  provider: openai
+  model: gpt-5.1
+  temperature: 0.2
+  max_tokens: 10000
+  timeout: 60
+
+writing:
+  # provider: anthropic
+  # model: claude-3-5-sonnet-20241022
+  provider: openai
+  model: gpt-5.1
+  temperature: 0.3
+  max_tokens: 4000
+  timeout: 90
+
+quality:
+  # provider: anthropic
+  # model: claude-3-5-sonnet-20241022
+  provider: openai
+  model: gpt-5.1
+  temperature: 0.1
+  max_tokens: 2000
+  timeout: 45

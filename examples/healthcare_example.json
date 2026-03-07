@@ -1,0 +1,75 @@
+{
+  "input": {
+    "topic": "Effectiveness of telemedicine interventions for Type 2 diabetes management in adults",
+    "scope_instructions": "Focus on adults 18+, exclude pediatric cases. Include studies from 2018-2024.",
+    "target_audience": "clinical practitioners",
+    "report_format": "clinical_brief",
+    "max_quality_iterations": 3
+  },
+  "expected_output_structure": {
+    "coordinator": {
+      "research_queries": [
+        "effectiveness telemedicine Type 2 diabetes management adults systematic review",
+        "remote glucose monitoring HbA1c outcomes randomized controlled trial",
+        "telehealth patient adherence barriers diabetes care",
+        "mobile health interventions diabetes self-management",
+        "telemedicine cost-effectiveness chronic disease management"
+      ],
+      "scope_boundaries": {
+        "in_scope": [
+          "Adults aged 18+",
+          "Type 2 diabetes mellitus",
+          "Telemedicine and telehealth interventions",
+          "Clinical outcomes (HbA1c, blood glucose, complications)",
+          "Patient adherence and satisfaction",
+          "Remote patient monitoring"
+        ],
+        "out_of_scope": [
+          "Pediatric diabetes",
+          "Type 1 diabetes",
+          "Gestational diabetes",
+          "Administrative/billing aspects only",
+          "Non-English language studies"
+        ]
+      },
+      "priority_subtopics": [
+        "Clinical effectiveness (HbA1c reduction)",
+        "Patient engagement and adherence",
+        "Implementation barriers and facilitators"
+      ]
+    },
+    "research": {
+      "deduplicated_sources_count": "10-20 sources",
+      "evidence_levels": ["Systematic Review", "RCT", "Cohort Study"],
+      "domains": ["pubmed.ncbi.nlm.nih.gov", "thelancet.com", "jamanetwork.com"]
+    },
+    "analysis": {
+      "clinical_claims_example": {
+        "claim": "Telemedicine interventions significantly reduce HbA1c levels compared to usual care",
+        "evidence_level": "Systematic Review",
+        "effect_size": "Mean HbA1c reduction of 0.40-0.64%",
+        "p_value": "<0.001"
+      },
+      "evidence_gaps_example": [
+        "Long-term adherence data beyond 12 months",
+        "Cost-effectiveness across different healthcare systems",
+        "Outcomes in underserved or rural populations"
+      ]
+    },
+    "writing": {
+      "report_sections": [
+        "Executive Summary",
+        "Clinical Background",
+        "Evidence Synthesis",
+        "Key Findings and Recommendations",
+        "Evidence Gaps and Future Directions",
+        "References"
+      ],
+      "word_count_range": "1500-3000"
+    },
+    "quality": {
+      "quality_score_range": "70-95",
+      "expected_verdict": "pass (after 0-2 revision iterations)"
+    }
+  }
+}

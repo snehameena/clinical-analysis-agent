@@ -1,0 +1,52 @@
+# LangGraph Pipeline Configuration
+
+graph:
+  name: healthcare_intelligence_pipeline
+  description: Multi-agent clinical evidence synthesis pipeline
+
+nodes:
+  - coordinator
+  - research
+  - analysis
+  - writing
+  - quality
+
+edges:
+  coordinator:
+    - research
+  research:
+    - analysis
+  analysis:
+    - writing
+  writing:
+    - quality
+  quality:
+    - end
+
+quality_routing:
+  max_iterations: 3
+  verdict_threshold:
+    pass: true
+    revise: "iterate < max"
+    reject: "return end"
+
+timeouts:
+  node_timeout: 120
+  overall_timeout: 600
+
+retry_policy:
+  max_retries: 1
+  backoff_factor: 1.0
+
+tavily_config:
+  search_depth: advanced
+  domains:
+    - pubmed.ncbi.nlm.nih.gov
+    - thelancet.com
+    - jamanetwork.com
+    - bmj.com
+    - cochranelibrary.com
+    - who.int
+    - cdc.gov
+    - nih.gov
+    - nejm.org

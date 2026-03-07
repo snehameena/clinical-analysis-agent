@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -c \"import sys; sys.path.insert\\(0, ''.''\\); from src.frontend.app import main; print\\(''Import OK''\\)\")",
+      "Bash(python -c:*)"
+    ]
+  }
+}

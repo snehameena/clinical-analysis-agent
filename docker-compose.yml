@@ -1,0 +1,36 @@
+services:
+  runner:
+    build: .
+    image: clinical-analysis-agent
+    command: >
+      streamlit run src/frontend/runner.py
+      --server.port=8502
+      --server.address=0.0.0.0
+      --server.headless=true
+    ports:
+      - "8502:8502"
+    env_file:
+      - .env.local
+    volumes:
+      - logs:/app/logs
+    restart: unless-stopped
+
+  monitor:
+    image: clinical-analysis-agent
+    command: >
+      streamlit run src/frontend/monitor.py
+      --server.port=8503
+      --server.address=0.0.0.0
+      --server.headless=true
+    ports:
+      - "8503:8503"
+    env_file:
+      - .env.local
+    volumes:
+      - logs:/app/logs
+    depends_on:
+      - runner
+    restart: unless-stopped
+
+volumes:
+  logs:

@@ -142,6 +142,31 @@ Use the **Recent runs to display** slider in the sidebar to control chart densit
 
 <img src="static/monitor.py_startup_screenshot.png" alt="Monitor screenshot" width="900" />
 
+### 4.C: Docker (Runner + Monitor)
+
+Run both apps together with Docker Compose (SQLite DB and log files are persisted in a shared named volume):
+
+```bash
+# 1. Copy and populate your secrets
+cp .env.example .env.local
+# edit .env.local with OPENAI_API_KEY, ANTHROPIC_API_KEY, TAVILY_API_KEY
+
+# 2. Build the image
+docker compose build
+
+# 3. Start both services
+docker compose up
+```
+
+| Service | URL |
+|---------|-----|
+| Pipeline Runner | http://localhost:8502 |
+| Monitoring Dashboard | http://localhost:8503 |
+
+> **Note:** API keys are read from `.env.local` at runtime — they are never baked into the image. The `logs/` volume is shared between services so the runner writes SQLite + JSONL logs and the monitor can read them.
+
+Stop with `docker compose down` (logs volume is preserved). Add `-v` to also remove the volume.
+
 ### Debug logs
 
 ```

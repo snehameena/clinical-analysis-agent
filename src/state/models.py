@@ -127,7 +127,31 @@ class AnalysisOutput(BaseModel):
     @field_validator("clinical_claims", mode="before")
     @classmethod
     def _coerce_claims(cls, v: Any) -> List[Any]:
-        return _as_list(v)
+        items = _as_list(v)
+        out: List[Any] = []
+        for x in items:
+            if x is None:
+                continue
+            # Common failure mode: LLM returns a list[str] instead of list[object].
+            if isinstance(x, str):
+                s = x.strip()
+                if s:
+                    out.append({"claim": s})
+                continue
+            if isinstance(x, dict):
+                # Map a few common alternate keys into the expected shape.
+                if "claim" not in x:
+                    if isinstance(x.get("text"), str) and x.get("text", "").strip():
+                        x = {**x, "claim": x.get("text")}
+                    elif isinstance(x.get("finding"), str) and x.get("finding", "").strip():
+                        x = {**x, "claim": x.get("finding")}
+                out.append(x)
+                continue
+            # Fallback: stringify unknown item types.
+            s = str(x).strip()
+            if s:
+                out.append({"claim": s})
+        return out
 
     @field_validator("evidence_gaps", "contradictions", mode="before")
     @classmethod

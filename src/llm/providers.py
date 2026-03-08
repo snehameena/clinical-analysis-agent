@@ -88,7 +88,14 @@ class AnthropicProvider:
             return LLMResult(text=text, meta=meta)
 
         if timeout:
-            return await asyncio.wait_for(_do_call(), timeout=timeout)
+            try:
+                return await asyncio.wait_for(_do_call(), timeout=timeout)
+            except asyncio.TimeoutError as e:
+                # asyncio.TimeoutError often stringifies to empty; include actionable context.
+                raise asyncio.TimeoutError(
+                    f"OpenAI request timed out after {timeout}s (model={model}). "
+                    "Increase this agent timeout in config/agents.yaml or reduce max_tokens/context."
+                ) from e
         return await _do_call()
 
 

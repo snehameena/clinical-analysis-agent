@@ -8,7 +8,6 @@ Env vars are used only for API keys and runtime URLs, not provider/model selecti
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any, Dict, Optional
 
 import yaml
@@ -24,7 +23,6 @@ class AgentLLMConfig:
     timeout: Optional[float] = None
 
 
-@lru_cache(maxsize=1)
 def _load_agents_yaml() -> Dict[str, Any]:
     repo_root = Path(__file__).resolve().parents[2]
     path = repo_root / "config" / "agents.yaml"

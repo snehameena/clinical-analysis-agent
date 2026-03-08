@@ -40,20 +40,53 @@ class QualityAgent(BaseAgent):
         Returns:
             Updated state with quality_verdict, quality_score, quality_issues, revision_instructions
         """
-        report = state.get("report_markdown", "")
+        report = state.get("report_markdown", "") or ""
         clinical_claims = state.get("clinical_claims", [])
         evidence_gaps = state.get("evidence_gaps", [])
         topic = state.get("topic", "")
 
-        if not report:
+        if not report.strip():
+            # If writing produced sections but not a full markdown blob, reconstruct a best-effort report.
+            sections = state.get("report_sections") or {}
+            if isinstance(sections, dict) and sections:
+                parts = []
+                for name, body in sections.items():
+                    title = str(name).strip() or "Section"
+                    text = "" if body is None else str(body).strip()
+                    if not text:
+                        continue
+                    # Use a stable heading even if the body already contains headings.
+                    parts.append(f"## {title}\n\n{text}")
+                report = "\n\n".join(parts).strip()
+
+        if not report.strip():
             raise ValueError("No report provided for quality review")
 
-        # Build QA prompt
+        sections = state.get("report_sections") or {}
+        def _sec(name: str, limit: int = 1400) -> str:
+            if isinstance(sections, dict):
+                val = sections.get(name)
+                if isinstance(val, str):
+                    return val[:limit]
+            return ""
+
+        # Build QA prompt (bounded context: key sections only)
         user_message = f"""
 Topic: {topic}
 
-Report to review:
-{report[:2000]}...
+Key sections to review:
+
+Executive Summary:
+{_sec("Executive Summary")}
+
+Evidence Synthesis:
+{_sec("Evidence Synthesis")}
+
+Safety and Harms:
+{_sec("Safety and Harms")}
+
+Evidence Grading:
+{_sec("Evidence Grading")}
 
 Clinical claims made:
 {json.dumps(clinical_claims[:5], indent=2)}
@@ -71,8 +104,8 @@ Please evaluate this report on:
         Return as JSON with:
 - quality_score: 0-100
 - quality_verdict: "pass" (>75), "revise" (50-75), "reject" (<50)
-- quality_issues: list with severity (critical/major/minor), section, description, recommendation
-- revision_instructions: specific sections to update (if revise verdict)
+- quality_issues: list (<= 10) with severity (critical/major/minor), section, description, recommendation
+- revision_instructions: concise bullets (<= 600 words) describing specific sections to update (if revise verdict)
 """
 
         try:

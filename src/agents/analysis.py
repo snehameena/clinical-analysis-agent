@@ -69,6 +69,13 @@ Please analyze these sources and extract:
 - contradictions: list of contradictions
 - statistical_findings: list of statistical findings
 - analysis_narrative: narrative summary
+
+Length limits (do not exceed):
+- clinical_claims: <= 10
+- evidence_gaps: <= 8
+- contradictions: <= 6
+- statistical_findings: <= 10
+- analysis_narrative: <= 900 words
 """
 
         try:
@@ -82,12 +89,12 @@ Please analyze these sources and extract:
                     "analysis_narrative",
                 ],
             )
-            print("result::", result)
             validated = AnalysisOutput.model_validate(result).model_dump()
-            print("validate::", validated)
-            print('vcc::', validated["clinical_claims"])
         except Exception as e:
-            raise ValueError(f"Analysis agent failed to parse response: {e}")
+            msg = str(e).strip()
+            if not msg:
+                msg = repr(e)
+            raise ValueError(f"Analysis agent failed: {type(e).__name__}: {msg}")
 
         # Update state
         # Pydantic normalizes list/dict/string variants into stable shapes.
@@ -112,8 +119,22 @@ Please analyze these sources and extract:
         Returns:
             Formatted sources text
         """
+        # Bound the context size to keep latency reasonable.
+        MAX_SOURCES = 12
+        SNIPPET_CHARS = 220
+
+        def _score(s: dict) -> float:
+            try:
+                return float(s.get("relevance_score", 0) or 0)
+            except Exception:
+                return 0.0
+
+        ranked = list(sources or [])
+        ranked.sort(key=_score, reverse=True)
+        ranked = ranked[:MAX_SOURCES]
+
         formatted = []
-        for i, source in enumerate(sources, 1):
+        for i, source in enumerate(ranked, 1):
             title = source.get("title", "Unknown")
             snippet = source.get("snippet", "")
             level = source.get("evidence_level", "Unknown")
@@ -122,7 +143,7 @@ Please analyze these sources and extract:
             formatted.append(
                 f"{i}. [{level}] {title}\n"
                 f"   Relevance: {score:.2f}\n"
-                f"   Summary: {snippet[:300]}..."
+                f"   Summary: {snippet[:SNIPPET_CHARS]}..."
             )
 
         return "\n".join(formatted)

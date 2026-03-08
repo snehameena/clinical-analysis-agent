@@ -47,6 +47,9 @@ class BaseAgent(ABC):
         self.llm = get_llm_provider(self.provider_name)
         self.system_prompt = self._get_system_prompt()
 
+        # Captured from the last provider response for better error messages (e.g. truncation).
+        self._last_llm_meta: dict = {}
+
     def _get_system_prompt(self) -> str:
         """Get system prompt from config or override"""
         # This will be overridden in subclasses
@@ -109,6 +112,7 @@ class BaseAgent(ABC):
                 resp_text = getattr(result, "text", "")
                 resp_meta = getattr(result, "meta", {}) or {}
         except Exception as e:
+            self._last_llm_meta = {}
             log_llm_io(
                 agent_name=self.name,
                 run_id=run_id,
@@ -120,6 +124,10 @@ class BaseAgent(ABC):
                 error=str(e),
             )
             raise
+
+        # Store meta for downstream JSON parsing and error messages.
+        # Include request-side limits so we can reason about truncation.
+        self._last_llm_meta = {**resp_meta, **{"max_tokens": self.max_tokens}}
 
         log_llm_io(
             agent_name=self.name,
@@ -201,6 +209,30 @@ class BaseAgent(ABC):
         attempt a single "repair" call to convert the raw output into valid JSON.
         """
 
+        def _likely_truncated(meta: dict) -> bool:
+            """
+            Best-effort detection of response truncation (token cap reached).
+            Works for OpenAI Chat Completions and Responses usage shapes.
+            """
+            try:
+                if (meta or {}).get("truncated") is True:
+                    return True
+                if str((meta or {}).get("finish_reason") or "").strip().lower() in ("length", "max_tokens"):
+                    return True
+                usage = (meta or {}).get("usage") or {}
+                # chat.completions usage
+                completion_tokens = usage.get("completion_tokens")
+                # responses usage
+                output_tokens = usage.get("output_tokens")
+                limit = int((meta or {}).get("max_tokens") or self.max_tokens or 0)
+                if limit > 0 and isinstance(completion_tokens, int) and completion_tokens >= limit:
+                    return True
+                if limit > 0 and isinstance(output_tokens, int) and output_tokens >= limit:
+                    return True
+            except Exception:
+                return False
+            return False
+
         def _validate_obj(obj: object) -> dict:
             if not isinstance(obj, dict):
                 raise ValueError(f"Expected JSON object, got {type(obj).__name__}")
@@ -211,11 +243,17 @@ class BaseAgent(ABC):
             return obj
 
         raw = await self._call_llm(user_message)
-        print('raw::',raw)
         try:
             parsed = self._parse_json_response(raw)
             return _validate_obj(parsed)
         except Exception as e:
+            meta0 = getattr(self, "_last_llm_meta", {}) or {}
+            if _likely_truncated(meta0):
+                raise ValueError(
+                    f"LLM output appears truncated (agent={self.name}, model={self.model}, max_tokens={self.max_tokens}). "
+                    f"Increase this agent's max_tokens in config/agents.yaml. Parse error: {e}"
+                )
+
             hint = f"\nSchema hint:\n{schema_hint}\n" if schema_hint else ""
             keys = f"{required_keys}" if required_keys else "N/A"
             repair_prompt = (
@@ -238,13 +276,22 @@ class BaseAgent(ABC):
                 parsed2 = self._parse_json_response(repaired)
                 return _validate_obj(parsed2)
             except Exception:
+                meta1 = getattr(self, "_last_llm_meta", {}) or {}
+                if _likely_truncated(meta1):
+                    raise ValueError(
+                        f"LLM repair output appears truncated (agent={self.name}, model={self.model}, max_tokens={self.max_tokens}). "
+                        f"Increase this agent's max_tokens in config/agents.yaml."
+                    )
+
                 # Last-resort: ask for a minimal skeleton object with required keys only.
                 if required_keys:
                     skeleton_lines = []
                     for k in required_keys:
-                        # Heuristic defaults: lists for plural-ish keys, empty string otherwise.
+                        # Heuristic defaults: try to match common agent output shapes.
                         if any(tok in k for tok in ("claims", "gaps", "contradictions", "findings", "issues", "queries", "citations", "subtopics", "sources")):
                             skeleton_lines.append(f'  "{k}": []')
+                        elif any(tok in k for tok in ("sections", "boundaries", "scores")) or k.endswith("_by_evidence_level"):
+                            skeleton_lines.append(f'  "{k}": {{}}')
                         elif "score" in k:
                             skeleton_lines.append(f'  "{k}": 0')
                         else:

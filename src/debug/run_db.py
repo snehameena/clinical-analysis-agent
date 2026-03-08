@@ -8,6 +8,7 @@ remain in JSONL logs.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import threading
@@ -33,6 +34,90 @@ def _db_path() -> Path:
     if raw:
         return Path(raw)
     return _repo_root() / "logs" / "runs.sqlite"
+
+
+def _artifacts_enabled() -> bool:
+    return os.getenv("RUN_ARTIFACTS_ENABLED", "1").strip().lower() not in ("0", "false", "no")
+
+
+def _artifacts_root() -> Path:
+    raw = os.getenv("RUN_ARTIFACTS_DIR", "").strip()
+    if raw:
+        return Path(raw)
+    return _repo_root() / "logs" / "artifacts"
+
+
+def _artifact_dir(run_id: str) -> Path:
+    # One directory per run.
+    return _artifacts_root() / str(run_id)
+
+
+def _safe_write_text(path: Path, text: str) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text or "")
+    except Exception:
+        return
+
+
+def _safe_write_json(path: Path, obj: Any) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=True, indent=2)
+    except Exception:
+        return
+
+
+def _write_run_artifacts_from_state(state: Dict[str, Any]) -> None:
+    """
+    Persist per-run artifacts for monitoring/debugging.
+
+    This is intentionally best-effort and never raises, since it's called from pipeline finalization.
+    """
+    if not _enabled() or not _artifacts_enabled():
+        return
+    run_id = (state or {}).get("run_id")
+    if not run_id:
+        return
+
+    base = _artifact_dir(str(run_id))
+
+    report_md = state.get("report_markdown") or ""
+    if isinstance(report_md, str) and report_md.strip():
+        _safe_write_text(base / "report.md", report_md)
+
+    sources = state.get("deduplicated_sources") or []
+    # Keep sources as JSON (list[dict]) for the monitor UI.
+    if isinstance(sources, list) and sources:
+        _safe_write_json(base / "sources.json", sources)
+
+    quality_obj = {
+        "quality_score": state.get("quality_score"),
+        "quality_verdict": state.get("quality_verdict"),
+        "quality_iteration": state.get("quality_iteration"),
+        "quality_issues": state.get("quality_issues") or [],
+        "revision_instructions": state.get("revision_instructions") or "",
+    }
+    # Write even if empty so the UI can distinguish "not present" vs "present but empty".
+    _safe_write_json(base / "quality.json", quality_obj)
+
+    # A small summary that can be useful for offline inspection.
+    summary = {
+        "run_id": run_id,
+        "topic": state.get("topic"),
+        "status": state.get("pipeline_status"),
+        "error_message": state.get("error_message"),
+        "counts": {
+            "raw_sources": len(state.get("raw_sources", []) or []),
+            "deduplicated_sources": len(state.get("deduplicated_sources", []) or []),
+            "clinical_claims": len(state.get("clinical_claims", []) or []),
+            "citations": len(state.get("citations", []) or []),
+        },
+        "report_word_count": state.get("report_word_count"),
+    }
+    _safe_write_json(base / "summary.json", summary)
 
 
 def _now_iso() -> str:
@@ -283,6 +368,8 @@ def finalize_run_from_state(state: Dict[str, Any], *, status: str) -> None:
                 ),
             )
         con.close()
+        # Best-effort artifact persistence for Monitor drill-down.
+        _write_run_artifacts_from_state(state or {})
     except Exception:
         return
 
@@ -492,4 +579,3 @@ def tavily_record(*, run_id: str, results_count: int) -> None:
         con.close()
     except Exception:
         return
-

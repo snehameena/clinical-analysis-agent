@@ -21,6 +21,12 @@ _lock = threading.Lock()
 def _enabled() -> bool:
     return os.getenv("AGENT_IO_LOG_ENABLED", "1").strip().lower() not in ("0", "false", "no")
 
+def _mode() -> str:
+    # global: logs/agent_io.jsonl only
+    # per_run: logs/runs/<run_id>.jsonl only
+    # both: write to both sinks
+    return os.getenv("AGENT_IO_LOG_MODE", "both").strip().lower() or "both"
+
 
 def _log_path() -> Path:
     repo_root = Path(__file__).resolve().parents[2]
@@ -29,6 +35,11 @@ def _log_path() -> Path:
     if not raw:
         return default_path
     return Path(raw)
+
+def _run_log_path(run_id: str) -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    runs_dir = repo_root / "logs" / "runs"
+    return runs_dir / f"{run_id}.jsonl"
 
 
 def _truncate_str(s: str, max_len: int = 4000) -> str:
@@ -115,13 +126,24 @@ def log_event(event: Dict[str, Any]) -> None:
     payload = dict(event)
     payload.setdefault("ts", datetime.now().isoformat())
 
-    path = _log_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    mode = _mode()
+    paths = []
+    if mode in ("global", "both"):
+        paths.append(_log_path())
+    if mode in ("per_run", "both"):
+        rid = payload.get("run_id")
+        if isinstance(rid, str) and rid.strip():
+            paths.append(_run_log_path(rid.strip()))
+
+    if not paths:
+        return
 
     line = json.dumps(_sanitize(payload), ensure_ascii=True)
     with _lock:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
 
 
 def log_agent_state(

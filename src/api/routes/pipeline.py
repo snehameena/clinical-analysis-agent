@@ -12,6 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 from src.api.models import PipelineRequest, PipelineResponse, StatusResponse, ReportResponse
 from src.api.dependencies import get_graph, get_run_store
 from src.state.schema import PipelineState
+from src.debug.run_db import ensure_run, set_run_status, finalize_run_from_state
 
 router = APIRouter(prefix="/api/v1/pipeline", tags=["pipeline"])
 logger = logging.getLogger(__name__)
@@ -60,17 +61,20 @@ async def _run_pipeline(run_id: str):
     store = get_run_store()
     state = store[run_id]
     state["pipeline_status"] = "running"
+    set_run_status(run_id, "running")
 
     try:
         graph = get_graph()
         result = await graph.ainvoke(state)
         result["pipeline_status"] = "completed"
         store[run_id] = result
+        finalize_run_from_state(result, status="completed")
     except Exception as e:
         logger.error(f"Pipeline run {run_id} failed: {e}")
         state["pipeline_status"] = "failed"
         state["error_message"] = str(e)
         store[run_id] = state
+        finalize_run_from_state(state, status="failed")
 
 
 @router.post("/run", response_model=PipelineResponse)
@@ -81,6 +85,16 @@ async def run_pipeline(request: PipelineRequest, background_tasks: BackgroundTas
 
     store = get_run_store()
     store[run_id] = state
+    ensure_run(
+        run_id=run_id,
+        source="fastapi",
+        topic=request.topic,
+        scope_instructions=request.scope_instructions,
+        target_audience=request.target_audience,
+        report_format=request.report_format,
+        status="pending",
+        log_path=str(Path("logs") / "runs" / f"{run_id}.jsonl"),
+    )
 
     background_tasks.add_task(_run_pipeline, run_id)
 

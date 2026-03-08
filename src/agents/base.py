@@ -4,12 +4,14 @@ Base agent class defining the interface for all agents.
 
 from abc import ABC, abstractmethod
 import json
+import time
 from typing import Optional
 from datetime import datetime
 from src.state.schema import PipelineState, AgentHistoryEntry
 from src.llm.agent_config import get_agent_llm_config
 from src.llm.providers import get_llm_provider
 from src.debug.agent_io import log_llm_io
+from src.debug.run_db import llm_call_insert, ensure_run
 
 
 class BaseAgent(ABC):
@@ -86,6 +88,11 @@ class BaseAgent(ABC):
         # Best-effort: if caller already put a run_id in the agent instance, log it.
         # (Not required for correctness; pipeline state logging also includes run_id.)
         run_id = getattr(self, "_current_run_id", None)
+        step_id = getattr(self, "_current_step_id", None)
+        call_kind = getattr(self, "_current_call_kind", "primary")
+
+        if isinstance(run_id, str) and run_id.strip():
+            ensure_run(run_id=run_id.strip(), source="unknown")
 
         log_llm_io(
             agent_name=self.name,
@@ -96,6 +103,8 @@ class BaseAgent(ABC):
             messages=messages,
             meta={"temperature": self.temperature, "max_tokens": self.max_tokens, "timeout": self.timeout},
         )
+
+        t0 = time.time()
         try:
             result = await self.llm.generate(
                 system_prompt=self.system_prompt,
@@ -113,6 +122,24 @@ class BaseAgent(ABC):
                 resp_meta = getattr(result, "meta", {}) or {}
         except Exception as e:
             self._last_llm_meta = {}
+            llm_call_insert(
+                run_id=run_id,
+                step_id=step_id,
+                agent_name=self.name,
+                provider=self.provider_name,
+                model=self.model,
+                api=None,
+                call_kind=call_kind,
+                duration_ms=int((time.time() - t0) * 1000),
+                status="error",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                input_tokens=None,
+                output_tokens=None,
+                total_tokens=None,
+                finish_reason=None,
+                truncated=None,
+            )
             log_llm_io(
                 agent_name=self.name,
                 run_id=run_id,
@@ -128,6 +155,45 @@ class BaseAgent(ABC):
         # Store meta for downstream JSON parsing and error messages.
         # Include request-side limits so we can reason about truncation.
         self._last_llm_meta = {**resp_meta, **{"max_tokens": self.max_tokens}}
+
+        # Normalize token usage across provider shapes.
+        api_used = resp_meta.get("api") if isinstance(resp_meta, dict) else None
+        finish_reason = resp_meta.get("finish_reason") if isinstance(resp_meta, dict) else None
+        truncated = resp_meta.get("truncated") if isinstance(resp_meta, dict) else None
+        usage = resp_meta.get("usage") if isinstance(resp_meta, dict) else None
+        in_t = out_t = tot_t = None
+        if isinstance(usage, dict):
+            # OpenAI chat.completions
+            if isinstance(usage.get("prompt_tokens"), int) or isinstance(usage.get("completion_tokens"), int):
+                in_t = usage.get("prompt_tokens")
+                out_t = usage.get("completion_tokens")
+                tot_t = usage.get("total_tokens")
+            # OpenAI responses / Anthropic
+            elif isinstance(usage.get("input_tokens"), int) or isinstance(usage.get("output_tokens"), int):
+                in_t = usage.get("input_tokens")
+                out_t = usage.get("output_tokens")
+                tot_t = usage.get("total_tokens")
+        if tot_t is None and isinstance(in_t, int) and isinstance(out_t, int):
+            tot_t = in_t + out_t
+
+        llm_call_insert(
+            run_id=run_id,
+            step_id=step_id,
+            agent_name=self.name,
+            provider=self.provider_name,
+            model=self.model,
+            api=api_used,
+            call_kind=call_kind,
+            duration_ms=int((time.time() - t0) * 1000),
+            status="ok",
+            error_type=None,
+            error_message=None,
+            input_tokens=in_t,
+            output_tokens=out_t,
+            total_tokens=tot_t,
+            finish_reason=finish_reason,
+            truncated=bool(truncated) if truncated is not None else None,
+        )
 
         log_llm_io(
             agent_name=self.name,
@@ -148,6 +214,11 @@ class BaseAgent(ABC):
         messages: [{"role": "user"|"assistant", "content": "..."}]
         """
         run_id = getattr(self, "_current_run_id", None)
+        step_id = getattr(self, "_current_step_id", None)
+        call_kind = getattr(self, "_current_call_kind", "primary")
+
+        if isinstance(run_id, str) and run_id.strip():
+            ensure_run(run_id=run_id.strip(), source="unknown")
         log_llm_io(
             agent_name=self.name,
             run_id=run_id,
@@ -158,6 +229,7 @@ class BaseAgent(ABC):
             meta={"temperature": self.temperature, "max_tokens": self.max_tokens, "timeout": self.timeout},
         )
         try:
+            t0 = time.time()
             result = await self.llm.generate(
                 system_prompt=self.system_prompt,
                 messages=messages,
@@ -173,6 +245,24 @@ class BaseAgent(ABC):
                 resp_text = getattr(result, "text", "")
                 resp_meta = getattr(result, "meta", {}) or {}
         except Exception as e:
+            llm_call_insert(
+                run_id=run_id,
+                step_id=step_id,
+                agent_name=self.name,
+                provider=self.provider_name,
+                model=self.model,
+                api=None,
+                call_kind=call_kind,
+                duration_ms=int((time.time() - t0) * 1000) if "t0" in locals() else 0,
+                status="error",
+                error_type=type(e).__name__,
+                error_message=str(e),
+                input_tokens=None,
+                output_tokens=None,
+                total_tokens=None,
+                finish_reason=None,
+                truncated=None,
+            )
             log_llm_io(
                 agent_name=self.name,
                 run_id=run_id,
@@ -184,6 +274,45 @@ class BaseAgent(ABC):
                 error=str(e),
             )
             raise
+
+        # Store meta for downstream error messages.
+        self._last_llm_meta = {**(resp_meta or {}), **{"max_tokens": self.max_tokens}}
+
+        api_used = resp_meta.get("api") if isinstance(resp_meta, dict) else None
+        finish_reason = resp_meta.get("finish_reason") if isinstance(resp_meta, dict) else None
+        truncated = resp_meta.get("truncated") if isinstance(resp_meta, dict) else None
+        usage = resp_meta.get("usage") if isinstance(resp_meta, dict) else None
+        in_t = out_t = tot_t = None
+        if isinstance(usage, dict):
+            if isinstance(usage.get("prompt_tokens"), int) or isinstance(usage.get("completion_tokens"), int):
+                in_t = usage.get("prompt_tokens")
+                out_t = usage.get("completion_tokens")
+                tot_t = usage.get("total_tokens")
+            elif isinstance(usage.get("input_tokens"), int) or isinstance(usage.get("output_tokens"), int):
+                in_t = usage.get("input_tokens")
+                out_t = usage.get("output_tokens")
+                tot_t = usage.get("total_tokens")
+        if tot_t is None and isinstance(in_t, int) and isinstance(out_t, int):
+            tot_t = in_t + out_t
+
+        llm_call_insert(
+            run_id=run_id,
+            step_id=step_id,
+            agent_name=self.name,
+            provider=self.provider_name,
+            model=self.model,
+            api=api_used,
+            call_kind=call_kind,
+            duration_ms=int((time.time() - t0) * 1000) if "t0" in locals() else 0,
+            status="ok",
+            error_type=None,
+            error_message=None,
+            input_tokens=in_t,
+            output_tokens=out_t,
+            total_tokens=tot_t,
+            finish_reason=finish_reason,
+            truncated=bool(truncated) if truncated is not None else None,
+        )
 
         log_llm_io(
             agent_name=self.name,
@@ -242,6 +371,7 @@ class BaseAgent(ABC):
                     raise ValueError(f"Missing required keys: {missing}")
             return obj
 
+        self._current_call_kind = "primary"
         raw = await self._call_llm(user_message)
         try:
             parsed = self._parse_json_response(raw)
@@ -271,6 +401,7 @@ class BaseAgent(ABC):
                 f"{raw}\n"
                 "-----\n"
             )
+            self._current_call_kind = "repair1"
             repaired = await self._call_llm(repair_prompt)
             try:
                 parsed2 = self._parse_json_response(repaired)
@@ -305,6 +436,7 @@ class BaseAgent(ABC):
                     "Do not include any extra keys, markdown, or commentary.\n"
                     f"JSON to return exactly:\n{skeleton}\n"
                 )
+                self._current_call_kind = "repair2"
                 repaired2 = await self._call_llm(repair2_prompt)
                 parsed3 = self._parse_json_response(repaired2)
                 return _validate_obj(parsed3)

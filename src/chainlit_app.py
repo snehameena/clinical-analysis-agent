@@ -32,6 +32,7 @@ from src.agents.research import ResearchAgent
 from src.agents.analysis import AnalysisAgent
 from src.agents.writing import WritingAgent
 from src.agents.quality import QualityAgent
+from src.debug.run_db import ensure_run, set_run_status, finalize_run_from_state
 
 
 AGENTS = {
@@ -225,13 +226,29 @@ async def on_message(message: cl.Message):
         await status.send()
 
         state = _build_initial_state(topic)
+        ensure_run(
+            run_id=state.get("run_id"),
+            source="chainlit",
+            topic=state.get("topic"),
+            scope_instructions=state.get("scope_instructions"),
+            target_audience=state.get("target_audience"),
+            report_format=state.get("report_format"),
+            status="pending",
+            log_path=str(Path("logs") / "runs" / f"{state.get('run_id')}.jsonl"),
+        )
+        set_run_status(state.get("run_id"), "running")
         try:
             graph = _get_graph()
             result = await graph.ainvoke(state)
         except Exception as e:
+            state["pipeline_status"] = "failed"
+            state["error_message"] = str(e)
+            finalize_run_from_state(state, status="failed")
             status.content = f"Pipeline failed: {e}"
             await status.update()
             return
+
+        finalize_run_from_state(result, status="completed")
 
         verdict = result.get("quality_verdict", "")
         score = result.get("quality_score", 0.0)

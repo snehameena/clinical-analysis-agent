@@ -9,6 +9,7 @@ from pathlib import Path
 from src.agents.base import BaseAgent
 from src.state.schema import PipelineState, Source
 from src.tools.tavily_search import HealthcareTavilySearch, deduplicate_sources
+from src.debug.run_db import tavily_record
 
 
 class ResearchAgent(BaseAgent):
@@ -51,6 +52,12 @@ class ResearchAgent(BaseAgent):
         for query in research_queries:
             # Search using Tavily
             raw_results = await self.tavily.search(query)
+            try:
+                run_id = getattr(self, "_current_run_id", None)
+                if isinstance(run_id, str) and run_id.strip():
+                    tavily_record(run_id=run_id.strip(), results_count=len(raw_results.get("results", []) or []))
+            except Exception:
+                pass
 
             # Parse results into Source objects
             sources = self.tavily.parse_results(raw_results)

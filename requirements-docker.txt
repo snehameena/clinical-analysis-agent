@@ -21,6 +21,5 @@ pydantic>=2.6.0
 nest-asyncio>=1.6.0
 
 # Streamlit UI + charts
-streamlit>=1.28.0
-altair>=5.0.0
+streamlit==1.45.0 
 plotly>=5.18.0

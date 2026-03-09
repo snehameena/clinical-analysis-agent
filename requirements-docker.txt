@@ -1,0 +1,25 @@
+# Slim requirements for Docker image (runner.py + monitor.py only)
+# Excludes: chainlit, fastapi/uvicorn, pytest, sse-starlette
+# chainlit pulls in uptrace->opentelemetry version conflicts causing multi-hour pip backtracking
+
+# LLM providers
+anthropic>=0.40.0
+openai>=1.0.0
+
+# Pipeline
+langgraph>=0.2.0
+langchain-core>=0.1
+
+# Search
+tavily-python>=0.3.0
+
+# Runtime utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0
+httpx>=0.25.0
+pydantic>=2.6.0
+nest-asyncio>=1.6.0
+
+# Streamlit UI + charts
+streamlit==1.45.0 
+plotly>=5.18.0
